@@ -1,4 +1,11 @@
-import { cubePositionOffset } from "./src/meshes/cube.js";
+import {
+  cubeVertexArray,
+  cubeVertexSize,
+  cubeUVOffset,
+  cubePositionOffset,
+  cubeVertexCount,
+} from "./src/meshes/cube.js";
+import {mat4, vec3} from "wgpu-matrix";
 
 const basicVertWgslPromise = fetch("/src/shaders/basic_vert.wgsl").then(res => res.text())
 const vertexPositionColorWgslPromise = fetch("/src/shaders/vertexPositionColor_frag.wgsl").then(res => res.text());
@@ -9,20 +16,20 @@ if (!navigator || !navigator.gpu) {
 }
 
 const canvas = document.querySelector("canvas");
-if(!canvas) throw new Error("Canvas not found");
+if (!canvas) throw new Error("Canvas not found");
 
 const devicePixelRatio = window.devicePixelRatio;
-canvas.width = canvas.clientWidth * devicePixelRatio;
-canvas.height = canvas.clientHeight * devicePixelRatio;
+canvas.width = window.innerWidth - 50 * devicePixelRatio;
+canvas.height = window.innerHeight - 50 * devicePixelRatio;
 
 // @ts-ignore
 navigator.gpu.requestAdapter().then(
-  (adapter: GPUAdapter|null) => {
+  (adapter: GPUAdapter | null) => {
     if (!adapter) throw new Error("Adapter not found")
-    adapter.requestDevice().then((device: GPUDevice|null) => {
+    adapter.requestDevice().then((device: GPUDevice | null) => {
       if (!device) throw new Error("device not found")
       const context = canvas.getContext("webgpu");
-      if(!context) throw new Error("Context not found")
+      if (!context) throw new Error("Context not found")
       const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 
       context.configure({
@@ -35,7 +42,10 @@ navigator.gpu.requestAdapter().then(
         main({
           device: device,
           basicVertWgsl: basicVertWgsl,
-          vertexPositionColorWgsl: vertexPositionColorWgsl
+          vertexPositionColorWgsl: vertexPositionColorWgsl,
+          textureFormat: canvasFormat,
+          canvas: canvas,
+          context: context
         });
       })
     });
@@ -49,172 +59,174 @@ interface IMain {
   device: GPUDevice
   basicVertWgsl: string
   vertexPositionColorWgsl: string
+  textureFormat: GPUTextureFormat
+  canvas: HTMLCanvasElement
+  context: GPUCanvasContext
 }
 
-function main(args: IMain) {
+function main(props: IMain) {
 
-  console.log('---', args);
-//   // Create a vertex buffer from the cube data.
-//   const verticesBuffer = device.createBuffer({
-//     size: cubeVertexArray.byteLength,
-//     usage: GPUBufferUsage.VERTEX,
-//     mappedAtCreation: true,
-//   });
+    //   // Create a vertex buffer from the cube data.
+    const verticesBuffer = props.device.createBuffer({
+      size: cubeVertexArray.byteLength,
+      usage: GPUBufferUsage.VERTEX,
+      mappedAtCreation: true,
+    });
 
-//   // new Float32Array(verticesBuffer.getMappedRange()).set(cubeVertexArray);
-//   // verticesBuffer.unmap();
+    new Float32Array(verticesBuffer.getMappedRange()).set(cubeVertexArray);
+    verticesBuffer.unmap();
 
-//   // const pipeline = device.createRenderPipeline({
-//   //   layout: "auto",
-//   //   vertex: {
-//   //     module: device.createShaderModule({
-//   //       code: basicVertWGSL,
-//   //     }),
-//   //     entryPoint: "main",
-//   //     buffers: [
-//   //       {
-//   //         arrayStride: cubeVertexSize,
-//   //         attributes: [
-//   //           {
-//   //             // position
-//   //             shaderLocation: 0,
-//   //             offset: cubePositionOffset,
-//   //             format: "float32x4",
-//   //           },
-//   //           {
-//   //             // uv
-//   //             shaderLocation: 1,
-//   //             offset: cubeUVOffset,
-//   //             format: "float32x2",
-//   //           },
-//   //         ],
-//   //       },
-//   //     ],
-//   //   },
-//   //   fragment: {
-//   //     module: device.createShaderModule({
-//   //       code: vertexPositionColorWGSL,
-//   //     }),
-//   //     entryPoint: "main",
-//   //     targets: [
-//   //       {
-//   //         format: presentationFormat,
-//   //       },
-//   //     ],
-//   //   },
-//   //   primitive: {
-//   //     topology: "triangle-list",
+    const pipeline = props.device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: props.device.createShaderModule({
+          code: props.basicVertWgsl,
+        }),
+        entryPoint: 'main',
+        buffers: [
+          {
+            arrayStride: cubeVertexSize,
+            attributes: [
+              {
+                // position
+                shaderLocation: 0,
+                offset: cubePositionOffset,
+                format: 'float32x4',
+              },
+              {
+                // uv
+                shaderLocation: 1,
+                offset: cubeUVOffset,
+                format: 'float32x2',
+              },
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: props.device.createShaderModule({
+          code: props.vertexPositionColorWgsl,
+        }),
+        entryPoint: 'main',
+        targets: [
+          {
+            format: props.textureFormat,
+          },
+        ],
+      },
+      primitive: {
+        topology: 'triangle-list',
 
-//   //     // Backface culling since the cube is solid piece of geometry.
-//   //     // Faces pointing away from the camera will be occluded by faces
-//   //     // pointing toward the camera.
-//   //     cullMode: "back",
-//   //   },
+        // Backface culling since the cube is solid piece of geometry.
+        // Faces pointing away from the camera will be occluded by faces
+        // pointing toward the camera.
+        cullMode: 'back',
+      },
 
-//   //   // Enable depth testing so that the fragment closest to the camera
-//   //   // is rendered in front.
-//   //   depthStencil: {
-//   //     depthWriteEnabled: true,
-//   //     depthCompare: "less",
-//   //     format: "depth24plus",
-//   //   },
-//   // });
+      // Enable depth testing so that the fragment closest to the camera
+      // is rendered in front.
+      depthStencil: {
+        depthWriteEnabled: true,
+        depthCompare: 'less',
+        format: 'depth24plus',
+      },
+    });
 
-//   // const depthTexture = device.createTexture({
-//   //   size: [canvas.width, canvas.height],
-//   //   format: "depth24plus",
-//   //   usage: GPUTextureUsage.RENDER_ATTACHMENT,
-//   // });
+    const depthTexture = props.device.createTexture({
+      size: [props.canvas.width, props.canvas.height],
+      format: 'depth24plus',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
 
-//   // const uniformBufferSize = 4 * 16; // 4x4 matrix
-//   // const uniformBuffer = device.createBuffer({
-//   //   size: uniformBufferSize,
-//   //   usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-//   // });
+    const uniformBufferSize = 4 * 16; // 4x4 matrix
+    const uniformBuffer = props.device.createBuffer({
+      size: uniformBufferSize,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
-//   // const uniformBindGroup = device.createBindGroup({
-//   //   layout: pipeline.getBindGroupLayout(0),
-//   //   entries: [
-//   //     {
-//   //       binding: 0,
-//   //       resource: {
-//   //         buffer: uniformBuffer,
-//   //       },
-//   //     },
-//   //   ],
-//   // });
+    const uniformBindGroup = props.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        {
+          binding: 0,
+          resource: {
+            buffer: uniformBuffer,
+          },
+        },
+      ],
+    });
 
-//   // const renderPassDescriptor = {
-//   //   colorAttachments: [
-//   //     {
-//   //       view: undefined, // Assigned later
+    const renderPassDescriptor: GPURenderPassDescriptor = {
+      //@ts-ignore
+      colorAttachments: [
+        {
+          view: undefined, // Assigned later
 
-//   //       clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1.0 },
-//   //       loadOp: "clear",
-//   //       storeOp: "store",
-//   //     },
-//   //   ],
-//   //   depthStencilAttachment: {
-//   //     view: depthTexture.createView(),
+          clearValue: { r: 0.5, g: 0.5, b: 0.5, a: 1.0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
+      depthStencilAttachment: {
+        view: depthTexture.createView(),
 
-//   //     depthClearValue: 1.0,
-//   //     depthLoadOp: "clear",
-//   //     depthStoreOp: "store",
-//   //   },
-//   // };
+        depthClearValue: 1.0,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store',
+      },
+    };
 
-//   // const aspect = canvas.width / canvas.height;
-//   // const projectionMatrix = mat4.perspective(
-//   //   (2 * Math.PI) / 5,
-//   //   aspect,
-//   //   1,
-//   //   100.0
-//   // );
-//   // const modelViewProjectionMatrix = mat4.create();
+    const aspect = props.canvas.width / props.canvas.height;
+    const projectionMatrix = mat4.perspective(
+      (2 * Math.PI) / 5,
+      aspect,
+      1,
+      100.0
+    );
+    const modelViewProjectionMatrix = mat4.create();
 
-//   // function getTransformationMatrix() {
-//   //   const viewMatrix = mat4.identity();
-//   //   mat4.translate(viewMatrix, vec3.fromValues(0, 0, -4), viewMatrix);
-//   //   const now = Date.now() / 1000;
-//   //   mat4.rotate(
-//   //     viewMatrix,
-//   //     vec3.fromValues(Math.sin(now), Math.cos(now), 0),
-//   //     1,
-//   //     viewMatrix
-//   //   );
+    function getTransformationMatrix() {
+      const viewMatrix = mat4.identity();
+      mat4.translate(viewMatrix, vec3.fromValues(0, 0, -10), viewMatrix);
+      const now = Date.now() / 5000;
+      mat4.rotate(
+        viewMatrix,
+        vec3.fromValues(Math.sin(now), Math.cos(now), 0),
+        1,
+        viewMatrix
+      );
 
-//   //   mat4.multiply(projectionMatrix, viewMatrix, modelViewProjectionMatrix);
+      mat4.multiply(projectionMatrix, viewMatrix, modelViewProjectionMatrix);
 
-//   //   return modelViewProjectionMatrix;
-//   // }
+      return modelViewProjectionMatrix as Float32Array;
+    }
 
-//   // function frame() {
-//   //   // Sample is no longer the active page.
-//   //   if (!pageState.active) return;
+    function frame() {
 
-//   //   const transformationMatrix = getTransformationMatrix();
-//   //   device.queue.writeBuffer(
-//   //     uniformBuffer,
-//   //     0,
-//   //     transformationMatrix.buffer,
-//   //     transformationMatrix.byteOffset,
-//   //     transformationMatrix.byteLength
-//   //   );
-//   //   renderPassDescriptor.colorAttachments[0].view = context
-//   //     .getCurrentTexture()
-//   //     .createView();
+      const transformationMatrix = getTransformationMatrix();
+      props.device.queue.writeBuffer(
+        uniformBuffer,
+        0,
+        transformationMatrix.buffer,
+        transformationMatrix.byteOffset,
+        transformationMatrix.byteLength
+      );
+      // @ts-ignore
+      renderPassDescriptor.colorAttachments[0].view = props.context
+        .getCurrentTexture()
+        .createView();
 
-//   //   const commandEncoder = device.createCommandEncoder();
-//   //   const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-//   //   passEncoder.setPipeline(pipeline);
-//   //   passEncoder.setBindGroup(0, uniformBindGroup);
-//   //   passEncoder.setVertexBuffer(0, verticesBuffer);
-//   //   passEncoder.draw(cubeVertexCount);
-//   //   passEncoder.end();
-//   //   device.queue.submit([commandEncoder.finish()]);
+      const commandEncoder = props.device.createCommandEncoder();
+      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+      passEncoder.setPipeline(pipeline);
+      passEncoder.setBindGroup(0, uniformBindGroup);
+      passEncoder.setVertexBuffer(0, verticesBuffer);
+      passEncoder.draw(cubeVertexCount);
+      passEncoder.end();
+      props.device.queue.submit([commandEncoder.finish()]);
 
-//   //   requestAnimationFrame(frame);
-//   // }
-//   // requestAnimationFrame(frame);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
 
 }

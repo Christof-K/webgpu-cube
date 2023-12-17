@@ -4,6 +4,7 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["@webgpu/types"]
+    "types": ["@webgpu/types"],
+    "moduleResolution":"node"
   }
 }
